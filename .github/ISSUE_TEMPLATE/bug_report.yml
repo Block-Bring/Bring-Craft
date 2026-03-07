@@ -1,0 +1,52 @@
+name: "🐛 Bug 报告"
+description: 提交一个 bug 帮助我们改进
+title: "[Bug]: "
+labels: ["bug"]  # 自动打上 bug 标签
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您报告问题！请填写以下信息。
+
+  - type: checkboxes  # 复选框
+    id: type
+    attributes:
+      label: 问题类型确认
+      description: 请确认这是一个 bug
+      options:
+        - label: 这是一个 bug（非预期行为/程序崩溃）
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请清晰简洁地描述这个 bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题？
+      placeholder: |
+        1. 打开 '...'
+        2. 点击 '....'
+        3. 看到错误
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      description: 你使用的是什么系统？
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - 其他
+    validations:
+      required: true
