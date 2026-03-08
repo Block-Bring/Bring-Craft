@@ -9,6 +9,7 @@ import colorama
 import requests
 
 import l
+from log import EasyLogger
 
 colorama.init()
 RED = colorama.Fore.RED
@@ -31,6 +32,9 @@ new_version = ""
 old_version = ""
 
 application_version = "1.9.2"
+application_build = "260221"
+
+logger = EasyLogger("latest.log")
 
 # 加载配置文件
 def load_config() -> bool:
@@ -38,9 +42,11 @@ def load_config() -> bool:
     config_contents = {
         "minecraft_directory": "",
         "settings": {
-            "check_update": True
+            "check_update": True,
+            "insider_preview": False
         }
     }
+    
     def _validate_config_structure(cfg, template):
         """检查 cfg 是否包含 template 中的所有键（递归）"""
         for key, value in template.items():
@@ -48,107 +54,145 @@ def load_config() -> bool:
                 return False
             if isinstance(value, dict):
                 if not isinstance(cfg.get(key), dict):
-                    print(cfg.get(key))
+                    print(f"{RED}配置项 {key} 应为字典类型，实际为 {type(cfg.get(key))}{RST}")
+                    logger.error(f"Configuration item '{key}' should be a dictionary, but got {type(cfg.get(key))}.")
                     return False
                 if not _validate_config_structure(cfg[key], value):
                     return False
         return True
-    print(f"{YELLOW}正在尝试读取配置文件...{RST}")
+
+    print(f"{BLUE}正在尝试读取配置文件...{RST}")
+    logger.info("Attempting to read the configuration file from disk.")
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            print(f"{GREEN}配置文件读取成功。{RST}")
+            logger.info("Configuration file successfully loaded from disk.")
         except PermissionError:
             print(f"{RED}无法读取配置文件 {CONFIG_FILE}：权限不足。{RST}")
-            print(f"{RED}请使用管理员身份运行或将程序放置于普通文件夹下运行。")
-            print(f"请不要将程序放在 C:/Windows 或 C:/Users 目录下{RST}")
+            print(f"{RED}请使用管理员身份运行或将程序放置于普通文件夹下运行。{RST}")
+            print(f"{RED}请不要将程序放在 C:/Windows 或 C:/Users 目录下。{RST}")
+            logger.error(f"Failed to read configuration file '{CONFIG_FILE}': Insufficient permissions.")
+            logger.error("Please run the program as an administrator or place it in a regular folder.")
+            logger.error("Avoid placing the program in system directories like C:/Windows or C:/Users.")
+            return False
         except Exception as e:
-            print(f"{RED}无法读取配置文件 {CONFIG_FILE}：{e}")
+            print(f"{RED}无法读取配置文件 {CONFIG_FILE}：{e}{RST}")
             print(f"{RED}请检查配置文件格式是否正确。{RST}")
+            logger.error(f"Failed to read configuration file '{CONFIG_FILE}': {e}")
+            logger.error("Please verify that the configuration file format is correct.")
+            return False
     else:
-        print(f"{RED}未找到配置文件{RST}")
+        print(f"{YELLOW}未找到配置文件，正在尝试创建...{RST}")
+        logger.warning("Configuration file not found. Attempting to create a new one.")
         try:
-            print(f"{YELLOW}正在尝试创建...{RST}")
             with open(CONFIG_FILE, 'w', encoding='utf-8') as file:
-                json.dump(config_contents, file, indent=4) # type: ignore
-                print(f"{GREEN}成功创建配置文件{RST}")
+                json.dump(config_contents, file, indent=4)
+            print(f"{GREEN}成功创建配置文件。{RST}")
+            logger.info("Successfully created the configuration file with default values.")
         except Exception as e:
-            print(f"{RED}创建配置文件 {CONFIG_FILE} 失败，原因：{e}")
+            print(f"{RED}创建配置文件 {CONFIG_FILE} 失败，原因：{e}{RST}")
+            logger.error(f"Failed to create configuration file '{CONFIG_FILE}': {e}")
+            return False
 
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as file:
                 config = json.load(file)
+            print(f"{GREEN}新配置文件读取成功。{RST}")
+            logger.info("New configuration file successfully loaded.")
         except Exception as e:
-            print(f"{RED}无法读取配置文件：{e}")
+            print(f"{RED}无法读取新创建的配置文件：{e}{RST}")
+            logger.error(f"Failed to read the newly created configuration file: {e}")
+            return False
 
     if config:
         if not _validate_config_structure(config, config_contents):
             print(f"{RED}配置文件结构异常，请手动删除 {CONFIG_FILE} 后重试。{RST}")
+            logger.error(f"Configuration file structure is invalid. Please manually delete '{CONFIG_FILE}' and restart the application.")
             config = {}
             return False
-        print(f"{GREEN}成功加载配置文件{RST}")
+        print(f"{GREEN}配置文件验证通过，加载完成。{RST}")
+        logger.info("Configuration file validated and loaded successfully.")
         return True
     else:
+        print(f"{RED}配置文件为空或加载失败。{RST}")
+        logger.error("Configuration file is empty or failed to load.")
         return False
 
 def save_config(show_saved_msg):
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as file:
             json.dump(config, file, indent=4) # type: ignore
-            if show_saved_msg:
-                print(f"{GREEN}成功保存配置文件{RST}")
+        if show_saved_msg:
+            print(f"{GREEN}配置文件保存成功。{RST}")
+            logger.info("Configuration file saved successfully to disk.")
     except Exception as exception:
-        print(f"{RED}保存配置文件 {CONFIG_FILE} 时出错：\n{exception}")
+        print(f"{RED}保存配置文件 {CONFIG_FILE} 时出错：\n{exception}{RST}")
+        logger.error(f"Error occurred while saving configuration file '{CONFIG_FILE}':\n{exception}")
         return False
     return True
+
 # 联机获取信息
 def load_latest_info_file() -> int:
     def request_file() -> bool:
+        global url
         url = "https://raw.githubusercontent.com/Block-Bring/"\
               "Bring-Craft-Modpack/refs/heads/main/migrator/latest.json"
         request_headers = {
             "User-Agent": f"Bring-Migrator/{application_version} "
-                          "(https://github.com/Block-Bring/"
-                          "Bring-Craft-Modpack)"
+                          "(https://github.com/Block-Bring/Bring-Craft-Modpack)"
         }
         try:
-            print(f"{YELLOW}正在尝试下载最新信息文件...{RST}")
+            print(f"{BLUE}正在尝试下载最新信息文件...{RST}")
+            logger.info(f"Attempting to download the URL: {url}")
             response = requests.get(url, headers=request_headers, timeout=10)
             if response.status_code == 200:
                 with open(LATEST_INFO_FILE, 'wb') as file:
                     file.write(response.content)
-                print(f"{GREEN}成功下载最新信息文件{RST}")
+                print(f"{GREEN}最新信息文件下载成功。{RST}")
+                logger.info(f"URL {url} successfully downloaded and saved to {os.path.abspath(LATEST_INFO_FILE)}")
                 return True
             else:
                 print(f"{RED}下载最新信息文件失败，状态码：{response.status_code}{RST}")
+                logger.error(f"Failed to download {url} to {os.path.abspath(LATEST_INFO_FILE)}, reason: HTTP status code {response.status_code}")
                 return False
         except TimeoutError:
-            print(f"{RED}下载最新信息文件失败：连接超时（timeout=10）{RST}")
+            print(f"{RED}下载最新信息文件失败：连接超时（timeout=10）。{RST}")
+            logger.error(f"Failed to download {url} to {os.path.abspath(LATEST_INFO_FILE)}, reason: Connection timed out after 10 seconds")
             return False
         except Exception as exception:
-            print(f"在尝试下载最新信息文件时出错：{exception}")
+            print(f"{RED}在尝试下载最新信息文件时出错：{exception}{RST}")
+            logger.error(f"Failed to download {url} to {os.path.abspath(LATEST_INFO_FILE)}, reason: {exception}")
             return False
+
     def read_latest_file(is_latest):
         global latest
         if os.path.exists(LATEST_INFO_FILE):
             try:
                 if is_latest:
-                    print(f"{YELLOW}正在尝试读取最新信息文件...{RST}")
+                    print(f"{BLUE}正在尝试读取最新信息文件...{RST}")
+                    logger.info(f"Attempting to read the URL {url} from local storage. File path: {os.path.abspath(LATEST_INFO_FILE)}")
                 else:
-                    print(f"{YELLOW}正在尝试读取已有的最新信息文件...{RST}")
+                    print(f"{BLUE}正在尝试读取已有的本地文件...{RST}")
+                    logger.info(f"Attempting to read the existing local file from storage. File path: {os.path.abspath(LATEST_INFO_FILE)}")
                 with open(LATEST_INFO_FILE, 'r', encoding='utf-8') as file:
                     latest = json.load(file)
                 if is_latest:
-                    print(f"{GREEN}成功加载最新信息文件{RST}")
+                    print(f"{GREEN}最新信息文件读取成功。{RST}")
+                    logger.info(f"URL {url} successfully loaded from local storage. File path: {os.path.abspath(LATEST_INFO_FILE)}")
                     return 1
                 else:
-                    print(f"{GREEN}成功加载已有的最新信息文件{RST}")
+                    print(f"{GREEN}已有本地文件读取成功。{RST}")
+                    logger.info(f"Existing local file successfully loaded from storage. File path: {os.path.abspath(LATEST_INFO_FILE)}")
                     return 2
             except Exception as exception:
-                print(f"{RED}无法读取最新信息文件：{exception}")
+                print(f"{RED}无法读取最新信息文件：{exception}{RST}")
+                logger.error(f"Failed to read local file, reason: {exception}. File path: {os.path.abspath(LATEST_INFO_FILE)}")
                 return 0
         else:
-            print(f"{RED}最新信息文件不存在{RST}")
+            print(f"{RED}最新信息文件不存在。{RST}")
+            logger.error(f"Failed to read local file, reason: File does not exist. File path: {os.path.abspath(LATEST_INFO_FILE)}")
             return 0
 
     if request_file():
@@ -331,6 +375,9 @@ def settings():
         print(f"  [{GREEN}1{RST}] 启动时检查更新：{GREEN}是{RST}"
               if config.get("settings", {}).get("check_update")
               else f"  [{GREEN}1{RST}] 启动时检查更新：{RED}否{RST}")
+        print(f"  [{GREEN}2{RST}] Insider Preview 计划：{GREEN}是{RST}"
+              if config.get("settings", {}).get("insider_preview")
+              else f"  [{GREEN}2{RST}] Insider Preview 计划：{RED}否{RST}")
         print("")
         print("=" * 41)
 
@@ -338,6 +385,11 @@ def settings():
             choice = input("键入相应数字以配置：").strip()
             if choice == "1":
                 config["settings"]["check_update"] = not config["settings"]["check_update"]
+                if not save_config(False):
+                    l.pause()
+                break
+            elif choice == "2":
+                config["settings"]["insider_preview"] = not config["settings"]["insider_preview"]
                 if not save_config(False):
                     l.pause()
                 break
@@ -355,29 +407,36 @@ def check_update(latest_is_latest: bool) -> int:
         app_latest_url = latest.get("application", {}).get("latest_url")
 
         if latest_is_latest and \
-            not application_version == app_latest_version and \
+            l.version_compare(application_version, app_latest_version) and \
                 config.get("settings", {}).get("check_update"):
 
+            logger.info(f"发现新版本可用 {app_latest_version}", "Update thread")
             print(f"有新的 Bring Migrator 版本可用！")
             print(f"{RED}{application_version}{RST} → {GREEN}{app_latest_version}{RST}")
             if l.is_url(app_latest_url):
                 while True:
                     open_browser = input(f"{YELLOW}是否打开浏览器以下载新版本？ [Y/n]{RST}").strip()
                     if open_browser.lower() in ["y", "yes"]:
+                        logger.info("用户选择打开浏览器下载新版本", "Update thread")
                         print(f"{YELLOW}正在尝试启动浏览器...{RST}")
                         webbrowser.open(app_latest_url)
                         return 1
                     elif open_browser.lower() in ["n", "no"]:
+                        logger.info("用户选择不打开浏览器", "Update thread")
                         return 2
                     else:
                         print(f"{RED}无效的输入{RST}")
             else:
+                logger.error("更新信息未提供有效 URL", "Update thread")
                 print(f"{RED}更新信息未提供有效 URL{RST}")
-                l.pause()
+                l.pause(3)
                 return 2
-        else: return 2
+        else:
+            logger.info("无需更新或更新检查被禁用", "Update thread")
+            return 2
 
     except Exception as exception:
+        logger.error(f"检查更新时出错：{exception}")
         print(f"{RED}检查更新时出错：{exception}\n"
               f"请尝试删除应用程序目录下的 {CONFIG_FILE} 文件。{RST}")
         return 0
@@ -459,13 +518,23 @@ def main() -> bool:
         return False
 
 if __name__ == "__main__":
-    if main():
+    try:
+        get_main = main()
+        if get_main:
+            l.title("Bring Migrator - 正常退出")
+            logger.info(f"The program has exited without any errors, the exit code is {get_main}")
+            print(f"{GREEN}程序正常退出{RST}")
+            l.stop()
+            sys.exit(True)
+        else:
+            l.title("Bring Migrator - 异常退出")
+            logger.error(f"The program has exited with an error, please read the log above for details.")
+            print(f"{RED}程序异常退出{RST}")
+            l.stop()
+            sys.exit(False)
+    except KeyboardInterrupt:
         l.title("Bring Migrator - 正常退出")
-        print(f"{GREEN}程序正常退出{RST}")
+        logger.info("The program has been exited by Ctrl+C")
+        print(f"\n{GREEN}程序正常退出{RST}")
         l.stop()
         sys.exit(True)
-    else:
-        l.title("Bring Migrator - 异常退出")
-        print(f"{RED}程序异常退出{RST}")
-        l.stop()
-        sys.exit(False)
